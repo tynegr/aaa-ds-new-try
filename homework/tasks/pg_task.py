@@ -28,30 +28,45 @@ class ItemStorage:
         await self._pool.close()
 
     async def create_tables_structure(self) -> None:
-        """
-        Создайте таблицу items со следующими колонками:
-         item_id (int) - обязательное поле, значения должны быть уникальными
-         user_id (int) - обязательное поле
-         title (str) - обязательное поле
-         description (str) - обязательное поле
-        """
-        # In production environment we will use migration tool
-        # like https://github.com/pressly/goose
-        # YOUR CODE GOES HERE
+
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS items (
+                    item_id SERIAL PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    CONSTRAINT unique_item UNIQUE (user_id, title, description)
+                )
+                """
+            )
 
     async def save_items(self, items: list[ItemEntry]) -> None:
-        """
-        Напишите код для вставки записей в таблицу items одним запросом, цикл
-        использовать нельзя.
-        """
-        # Don't use str-formatting, query args should be escaped to avoid
-        # sql injections https://habr.com/ru/articles/148151/.
-        # YOUR CODE GOES HERE
+
+        async with self._pool.acquire() as conn:
+            values = [
+                (item.item_id, item.user_id, item.title, item.description) for
+                item in items]
+            await conn.executemany(
+                """
+                INSERT INTO items (item_id, user_id, title, description)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (item_id) DO NOTHING
+                """,
+                values
+            )
 
     async def find_similar_items(
-        self, user_id: int, title: str, description: str
+            self, user_id: int, title: str, description: str
     ) -> list[ItemEntry]:
-        """
-        Напишите код для поиска записей, имеющих указанные user_id, title и description.
-        """
-        # YOUR CODE GOES HERE
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT * FROM items
+                WHERE user_id = $1 AND title = $2 AND description = $3
+                """,
+                user_id, title, description
+            )
+            return [ItemEntry(**row) for row in rows]
